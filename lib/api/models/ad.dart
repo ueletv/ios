@@ -169,11 +169,6 @@ class PopupAdItem {
     return hasCover || hasText || hasTitle;
   }
 
-  /// 弹窗仅展示文字公告（忽略封面图广告）
-  bool get hasAnnouncementText {
-    return title?.trim().isNotEmpty == true || content?.trim().isNotEmpty == true;
-  }
-
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,

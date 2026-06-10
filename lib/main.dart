@@ -322,10 +322,8 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
             if (kDebugMode) debugPrint('[PopupAd] skip id<=0: $row');
             continue;
           }
-          if (!ad.hasAnnouncementText) {
-            if (kDebugMode) {
-              debugPrint('[PopupAd] skip image-only ad id=${ad.id}');
-            }
+          if (!ad.hasDisplayContent) {
+            if (kDebugMode) debugPrint('[PopupAd] skip no content id=${ad.id}');
             continue;
           }
           if (!PopupAdSession.canShow(ad.id, ad.showOnce)) {

@@ -39,8 +39,10 @@ jobs:
         run: |
           set -o pipefail
           flutter build ios --release --no-codesign -v 2>&1 | tee build_ios.log || (
-            echo "========== BUILD FAILED (last 150 lines) =========="
-            tail -150 build_ios.log
+            echo "========== Xcode / linker errors =========="
+            grep -E "error:|Error:|fatal error:|Undefined symbols|ld: |clang:" build_ios.log | tail -80 || true
+            echo "========== BUILD FAILED (last 120 lines) =========="
+            tail -120 build_ios.log
             exit 1
           )
 

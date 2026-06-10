@@ -162,7 +162,7 @@ final class LiveGiftSvgaViewFactory: NSObject, FlutterPlatformViewFactory {
     LiveGiftSvgaPlatformView(frame: frame)
   }
 
-  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+  func createArgsCodec() -> (any FlutterMessageCodec & NSObjectProtocol) {
     FlutterStandardMessageCodec.sharedInstance()
   }
 }

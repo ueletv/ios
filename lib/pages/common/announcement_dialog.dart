@@ -1,11 +1,13 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:videoweb_flutter/api/models/ad.dart';
 import 'package:videoweb_flutter/services/theme_controller.dart';
 import 'package:videoweb_flutter/theme/app_theme.dart';
 import 'package:videoweb_flutter/utils/ad_link_helper.dart';
+import 'package:videoweb_flutter/utils/image_url.dart';
 
-/// 首页弹窗公告（仅文字，不展示封面图广告）
+/// 首页弹窗公告（对齐原生 PopupAnnouncementDialog + APP 主题色）
 class AnnouncementDialog extends StatefulWidget {
   final PopupAdItem adItem;
   final int index;
@@ -47,6 +49,23 @@ class _AnnouncementDialogState extends State<AnnouncementDialog>
   late Animation<double> _scaleAnim;
   late Animation<double> _fadeAnim;
   bool _closing = false;
+
+  /// 与左上角「公告」角标重复的占位标题，不再在右侧重复展示
+  static bool _isGenericPopupTitle(String title) {
+    final t = title.trim();
+    if (t.isEmpty) return true;
+    const generic = {
+      '广告', '弹窗广告', '首页弹窗', '弹窗', '公告广告', '系统广告',
+      '公告', '系统公告',
+    };
+    return generic.contains(t);
+  }
+
+  static String _meaningfulPopupTitle(String? title) {
+    final t = title?.trim() ?? '';
+    if (_isGenericPopupTitle(t)) return '';
+    return t;
+  }
 
   @override
   void initState() {
@@ -103,12 +122,12 @@ class _AnnouncementDialogState extends State<AnnouncementDialog>
     context.watch<ThemeController>();
     final colors = context.appColors;
     final ad = widget.adItem;
+    final cover = ad.coverImage?.trim() ?? '';
     final content = ad.content?.trim() ?? '';
-    final title = ad.title?.trim() ?? '';
+    final headerTitle = _meaningfulPopupTitle(ad.title);
+    final hasImage = cover.isNotEmpty;
     final hasText = content.isNotEmpty;
     final maxWidth = (MediaQuery.sizeOf(context).width * 0.88).clamp(0.0, 400.0);
-    final headline = title.isNotEmpty ? title : '系统公告';
-    final body = hasText ? content : headline;
 
     return PopScope(
       canPop: false,
@@ -174,20 +193,22 @@ class _AnnouncementDialogState extends State<AnnouncementDialog>
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    headline,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: colors.textPrimary,
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.w700,
-                                      height: 1.3,
+                                if (headerTitle.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      headerTitle,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: colors.textPrimary,
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1.3,
+                                      ),
                                     ),
                                   ),
-                                ),
+                                ],
                               ],
                             ),
                           ),
@@ -197,21 +218,73 @@ class _AnnouncementDialogState extends State<AnnouncementDialog>
                               maxHeight: MediaQuery.sizeOf(context).height * 0.52,
                             ),
                             child: SingleChildScrollView(
-                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-                              child: GestureDetector(
-                                onTap: _clickable ? _onTapContent : null,
-                                child: Text(
-                                  body,
-                                  style: TextStyle(
-                                    color: colors.textSecondary,
-                                    fontSize: 15,
-                                    height: 1.55,
-                                  ),
-                                ),
+                              padding: EdgeInsets.fromLTRB(
+                                16,
+                                hasImage || hasText ? 12 : 16,
+                                16,
+                                12,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (hasImage)
+                                    GestureDetector(
+                                      onTap: _clickable ? _onTapContent : null,
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: ColoredBox(
+                                          color: colors.placeholderBg,
+                                          child: CachedNetworkImage(
+                                            imageUrl: ImageUrl.getImageUrl(cover),
+                                            width: double.infinity,
+                                            fit: BoxFit.contain,
+                                            placeholder: (_, __) => SizedBox(
+                                              height: 180,
+                                              child: Center(
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: colors.accent,
+                                                ),
+                                              ),
+                                            ),
+                                            errorWidget: (_, __, ___) => SizedBox(
+                                              height: 160,
+                                              child: Icon(
+                                                Icons.broken_image_outlined,
+                                                color: colors.textHint,
+                                                size: 40,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  if (hasImage && hasText) const SizedBox(height: 12),
+                                  if (hasText)
+                                    GestureDetector(
+                                      onTap: _clickable ? _onTapContent : null,
+                                      child: Text(
+                                        content,
+                                        style: TextStyle(
+                                          color: colors.textSecondary,
+                                          fontSize: 15,
+                                          height: 1.55,
+                                        ),
+                                      ),
+                                    ),
+                                  if (!hasImage && !hasText && headerTitle.isNotEmpty)
+                                    Text(
+                                      headerTitle,
+                                      style: TextStyle(
+                                        color: colors.textSecondary,
+                                        fontSize: 15,
+                                        height: 1.55,
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
                           ),
-                          Divider(height: 1, color: colors.divider),
                           Padding(
                             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                             child: Column(

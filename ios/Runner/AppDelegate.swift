@@ -12,8 +12,7 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "VideowebNativeBridge") {
-      NativeBridge.register(registrar: registrar)
-    }
+    let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "VideowebNativeBridge")!
+    NativeBridge.register(registrar: registrar)
   }
 }

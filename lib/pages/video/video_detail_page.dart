@@ -24,6 +24,7 @@ import 'package:videoweb_flutter/theme/app_theme.dart';
 import 'package:videoweb_flutter/utils/ad_link_helper.dart';
 import 'package:videoweb_flutter/utils/comment_time_util.dart';
 import 'package:videoweb_flutter/utils/fijk_player_helper.dart';
+import 'package:videoweb_flutter/utils/screen_wake_lock.dart';
 import 'package:videoweb_flutter/utils/image_url.dart';
 import 'package:videoweb_flutter/widgets/user_avatar.dart';
 import 'package:videoweb_flutter/utils/share_report_helper.dart';
@@ -52,6 +53,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
   // 播放器
   final FijkPlayer _player = FijkPlayer();
   bool _isPlaying = false;
+  bool _wakeLockHeld = false;
 
   // 视频信息（可能从详情接口获取更完整数据）
   late Video _video;
@@ -162,6 +164,17 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     if (playing && _controlsVisible) {
       _scheduleHideControls();
     }
+    _updateWakeLock(playing);
+  }
+
+  void _updateWakeLock(bool enable) {
+    if (enable == _wakeLockHeld) return;
+    _wakeLockHeld = enable;
+    if (enable) {
+      unawaited(ScreenWakeLock.acquire());
+    } else {
+      unawaited(ScreenWakeLock.release());
+    }
   }
 
   void _scheduleHideControls() {
@@ -245,6 +258,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     _bufferPosSub?.cancel();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _updateWakeLock(false);
     _player.removeListener(_onPlayerUpdate);
     _player.release();
     _commentCtrl.dispose();

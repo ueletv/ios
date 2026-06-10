@@ -7,6 +7,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:videoweb_flutter/api/models/video.dart';
 import 'package:videoweb_flutter/pages/hot/widgets/hot_action_button.dart';
 import 'package:videoweb_flutter/utils/fijk_player_helper.dart';
+import 'package:videoweb_flutter/utils/screen_wake_lock.dart';
 import 'package:videoweb_flutter/utils/image_url.dart';
 import 'package:videoweb_flutter/utils/video_interact_helper.dart';
 import 'package:videoweb_flutter/widgets/fijk_video_view.dart';
@@ -53,6 +54,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
   StreamSubscription<bool>? _bufferSub;
   bool _vipBlocked = false;
   bool _trialPlaying = false;
+  bool _wakeLockHeld = false;
   String _vipOverlayTitle = '需要 VIP 会员';
   String _vipOverlayMessage = '开通 VIP 后可观看短视频';
 
@@ -121,6 +123,17 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
       _isLoading = loading;
       _duration = dur;
     });
+    _updateWakeLock(widget.isActive && playing && !_vipBlocked);
+  }
+
+  void _updateWakeLock(bool enable) {
+    if (enable == _wakeLockHeld) return;
+    _wakeLockHeld = enable;
+    if (enable) {
+      unawaited(ScreenWakeLock.acquire());
+    } else {
+      unawaited(ScreenWakeLock.release());
+    }
   }
 
   void _showVipBlock({String? title, String? message}) {
@@ -231,6 +244,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     _isLoading = false;
     _userPaused = false;
     _isScrubbing = false;
+    _updateWakeLock(false);
     if (rebuild && mounted) setState(() {});
   }
 

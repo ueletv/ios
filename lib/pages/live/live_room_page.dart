@@ -17,6 +17,7 @@ import 'package:videoweb_flutter/services/global_trial_service.dart';
 import 'package:videoweb_flutter/services/gift_list_cache.dart';
 import 'package:videoweb_flutter/services/guest_auth_helper.dart';
 import 'package:videoweb_flutter/utils/fijk_player_helper.dart';
+import 'package:videoweb_flutter/utils/screen_wake_lock.dart';
 import 'package:videoweb_flutter/utils/app_toast.dart';
 import 'package:videoweb_flutter/utils/avatar_helper.dart';
 import 'package:videoweb_flutter/utils/image_url.dart';
@@ -148,6 +149,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> with WidgetsBindingObserver
       }
     });
     _cleanAnimCtrl = AnimationController(vsync: this);
+    unawaited(ScreenWakeLock.acquire());
   }
 
   void _applyCachedConfig() {
@@ -890,6 +892,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> with WidgetsBindingObserver
     _msgCtrl.dispose();
     _msgScrollCtrl.dispose();
     _cleanAnimCtrl?.dispose();
+    unawaited(ScreenWakeLock.release());
     super.dispose();
   }
 

@@ -25,22 +25,45 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 
 flutter_ios_podfile_setup
 
-# SVGAPlayer 2.5.x 在 Xcode 16+ 需补 OSAtomic 头文件，否则 Svga.pbobjc.m 编译失败
+# SVGAPlayer 2.5.x 在 Xcode 16+ 的 OSAtomic API 已不可用，用 stdatomic 兼容实现替换
 def patch_svga_pbobjc!(installer)
   pbobjc = File.join(installer.sandbox.root, 'SVGAPlayer', 'Source', 'pbobjc', 'Svga.pbobjc.m')
   return unless File.exist?(pbobjc)
 
-  import_line = '#import <libkern/OSAtomic.h>'
   contents = File.read(pbobjc)
-  return if contents.include?(import_line)
+  marker = '// Xcode16 SVGA atomic compatibility'
+  return if contents.include?(marker)
 
-  patched = if contents =~ /\A(#import[^\n]*\n)+/
-              contents.sub(/\A((?:#import[^\n]*\n)+)/, "\\1#{import_line}\n")
-            else
-              "#{import_line}\n#{contents}"
-            end
-  File.write(pbobjc, patched)
-  puts "Patched SVGAPlayer Svga.pbobjc.m for Xcode 16 (OSAtomic import)"
+  # 移除上次仅加 import 的补丁，避免 conflicting types
+  contents.gsub!(/^#import <libkern\/OSAtomic\.h>\n/, '')
+
+  header = <<~'PATCH'
+
+    // Xcode16 SVGA atomic compatibility
+    #import <stdatomic.h>
+    static inline BOOL SVGA_OSAtomicCompareAndSwapPtrBarrier(
+        void *oldp, void *newp, void *volatile *theValue) {
+      atomic_uintptr_t *obj = (atomic_uintptr_t *)theValue;
+      uintptr_t expected = (uintptr_t)oldp;
+      uintptr_t desired = (uintptr_t)newp;
+      return atomic_compare_exchange_strong_explicit(
+          obj, &expected, desired, memory_order_acquire, memory_order_release);
+    }
+    #undef OSAtomicCompareAndSwapPtrBarrier
+    #define OSAtomicCompareAndSwapPtrBarrier(a, b, c) \
+        SVGA_OSAtomicCompareAndSwapPtrBarrier((a), (b), (c))
+
+  PATCH
+
+  anchor = '#pragma mark - SVGAProtoSvgaRoot'
+  if contents.include?(anchor)
+    contents = contents.sub(anchor, "#{header}\n#{anchor}")
+  else
+    contents = "#{header}\n#{contents}"
+  end
+
+  File.write(pbobjc, contents)
+  puts 'Patched SVGAPlayer Svga.pbobjc.m for Xcode 16 (stdatomic)'
 end
 
 target 'Runner' do

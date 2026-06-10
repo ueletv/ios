@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:videoweb_flutter/pages/hot/widgets/hot_douyin_icons.dart';
 import 'package:videoweb_flutter/utils/video_interact_helper.dart';
 
 /// 抖音色：已赞 #FE2C55，已收藏 #FACE15
 class HotActionColors {
-  static const likeActive = Color(0xFFFE2C55);
-  static const favoriteActive = Color(0xFFFACE15);
+  static const likeActive = HotDouyinIcons.likeActive;
+  static const favoriteActive = HotDouyinIcons.favoriteActive;
 }
 
 enum HotActionKind { like, comment, favorite, share }
@@ -138,24 +139,13 @@ class _HotActionIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (kind) {
       case HotActionKind.like:
-        return Icon(
-          active ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-          size: 36,
-          color: active ? HotActionColors.likeActive : Colors.white,
-        );
+        return HotDouyinIcons.like(active: active);
       case HotActionKind.comment:
-        return const Icon(Icons.mode_comment_outlined, size: 34, color: Colors.white);
+        return HotDouyinIcons.comment();
       case HotActionKind.favorite:
-        return Icon(
-          active ? Icons.star_rounded : Icons.star_border_rounded,
-          size: 36,
-          color: active ? HotActionColors.favoriteActive : Colors.white,
-        );
+        return HotDouyinIcons.favorite(active: active);
       case HotActionKind.share:
-        return Transform.rotate(
-          angle: -0.65,
-          child: const Icon(Icons.reply_rounded, size: 34, color: Colors.white),
-        );
+        return HotDouyinIcons.share();
     }
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:fijkplayer/fijkplayer.dart';
 import 'package:provider/provider.dart';
 import 'package:videoweb_flutter/api/api_client.dart';
@@ -28,6 +29,13 @@ import 'package:videoweb_flutter/utils/image_url.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 默认竖屏，避免视频页退出全屏后首页短暂横屏闪烁（iOS 尤甚）
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   // 限制图片内存缓存，减轻长时间使用后的卡顿/OOM
   PaintingBinding.instance.imageCache

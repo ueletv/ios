@@ -2,15 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:fijkplayer/fijkplayer.dart';
+import 'package:video_player/video_player.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:videoweb_flutter/api/models/video.dart';
 import 'package:videoweb_flutter/pages/hot/widgets/hot_action_button.dart';
-import 'package:videoweb_flutter/utils/fijk_player_helper.dart';
+import 'package:videoweb_flutter/pages/hot/widgets/hot_douyin_icons.dart';
+import 'package:videoweb_flutter/utils/progressive_video_helper.dart';
 import 'package:videoweb_flutter/utils/screen_wake_lock.dart';
 import 'package:videoweb_flutter/utils/image_url.dart';
 import 'package:videoweb_flutter/utils/video_interact_helper.dart';
-import 'package:videoweb_flutter/widgets/fijk_video_view.dart';
+import 'package:videoweb_flutter/widgets/progressive_video_view.dart';
 import 'package:videoweb_flutter/widgets/player_buffered_progress_bar.dart';
 import 'package:videoweb_flutter/widgets/player_loading_overlay.dart';
 import 'package:videoweb_flutter/services/global_trial_service.dart';
@@ -40,7 +41,7 @@ class VideoPlayerItem extends StatefulWidget {
 }
 
 class _VideoPlayerItemState extends State<VideoPlayerItem> {
-  FijkPlayer? _player;
+  VideoPlayerController? _player;
   bool _isPlaying = false;
   bool _isLoading = false;
   bool _userPaused = false;
@@ -49,25 +50,33 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
   final ValueNotifier<double> _progressMs = ValueNotifier(0);
   final ValueNotifier<double> _bufferMs = ValueNotifier(0);
   int _lastProgressUiMs = 0;
-  StreamSubscription<Duration>? _posSub;
-  StreamSubscription<Duration>? _bufferPosSub;
-  StreamSubscription<bool>? _bufferSub;
   bool _vipBlocked = false;
   bool _trialPlaying = false;
   bool _wakeLockHeld = false;
   String _vipOverlayTitle = '需要 VIP 会员';
   String _vipOverlayMessage = '开通 VIP 后可观看短视频';
+  GlobalTrialService? _trialService;
 
   @override
   void initState() {
     super.initState();
-    context.read<GlobalTrialService>().addListener(_onTrialServiceChanged);
     if (widget.isActive) _initPlayer();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final trial = context.read<GlobalTrialService>();
+    if (_trialService == trial) return;
+    _trialService?.removeListener(_onTrialServiceChanged);
+    _trialService = trial;
+    _trialService!.addListener(_onTrialServiceChanged);
   }
 
   void _onTrialServiceChanged() {
     if (!mounted) return;
-    final trial = context.read<GlobalTrialService>();
+    final trial = _trialService;
+    if (trial == null) return;
     if (!trial.isActiveVip) return;
     trial.stopWatching();
     if (!_vipBlocked && !_trialPlaying) return;
@@ -78,7 +87,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     if (!widget.isActive) return;
     final player = _player;
     if (player != null && !_userPaused) {
-      unawaited(FijkPlayerHelper.resumeOrReplay(player));
+      unawaited(ProgressiveVideoHelper.resumeOrReplay(player));
     } else if (player == null) {
       unawaited(_initPlayer());
     }
@@ -96,27 +105,33 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
 
   void _onPlayerUpdate() {
     if (!mounted || _player == null) return;
+    final player = _player!;
+    final value = player.value;
+    if (!_isScrubbing && value.isInitialized) {
+      final durMs = value.duration.inMilliseconds;
+      final ms = value.position.inMilliseconds;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final nearEnd = durMs > 0 && ms >= durMs - 300;
+      if (nearEnd || now - _lastProgressUiMs >= 200) {
+        _lastProgressUiMs = now;
+        final max = durMs > 0 ? durMs.toDouble() : ms.toDouble();
+        _progressMs.value = ms.clamp(0, max.round()).toDouble();
+      }
+      _bufferMs.value = ProgressiveVideoHelper.bufferedEndMs(value).toDouble();
+    }
     _syncPlayerUi();
-  }
-
-  void _onPlaybackPosition(Duration pos) {
-    if (!mounted || _isScrubbing) return;
-    final durMs = _duration.inMilliseconds;
-    final ms = pos.inMilliseconds;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final nearEnd = durMs > 0 && ms >= durMs - 300;
-    if (!nearEnd && now - _lastProgressUiMs < 200) return;
-    _lastProgressUiMs = now;
-    final max = durMs > 0 ? durMs.toDouble() : ms.toDouble();
-    _progressMs.value = ms.clamp(0, max.round()).toDouble();
   }
 
   void _syncPlayerUi() {
     final player = _player;
     if (player == null || !mounted) return;
     final value = player.value;
-    final playing = FijkPlayerHelper.isPlaying(value);
-    final loading = FijkPlayerHelper.isLoading(player, userPaused: _userPaused);
+    final playing = ProgressiveVideoHelper.isPlaying(value);
+    final loading = ProgressiveVideoHelper.isLoading(
+      player,
+      userPaused: _userPaused,
+      isScrubbing: _isScrubbing,
+    );
     final dur = value.duration;
     setState(() {
       _isPlaying = playing;
@@ -192,23 +207,16 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
       return;
     }
 
-    final player = FijkPlayer();
-    player.addListener(_onPlayerUpdate);
-    _posSub = player.onCurrentPosUpdate.listen(_onPlaybackPosition);
-    _bufferPosSub = player.onBufferPosUpdate.listen((pos) {
-      if (!mounted || _isScrubbing) return;
-      _bufferMs.value = pos.inMilliseconds.toDouble();
-    });
-    _bufferSub = player.onBufferStateUpdate.listen((_) => _syncPlayerUi());
-    _player = player;
     _userPaused = false;
     _isLoading = true;
-
     if (mounted) setState(() {});
     try {
-      await FijkPlayerHelper.openUrl(player, url, isLive: false);
+      final player = await ProgressiveVideoHelper.openUrl(url);
+      player.addListener(_onPlayerUpdate);
+      _player = player;
+      await player.play();
       if (!mounted) return;
-      setState(() => _isPlaying = FijkPlayerHelper.isPlaying(player.value));
+      setState(() => _isPlaying = ProgressiveVideoHelper.isPlaying(player.value));
       if (!hasAccess && trial > 0) {
         _trialPlaying = true;
         _startGlobalTrialWatching();
@@ -219,21 +227,13 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
   }
 
   void _disposePlayer({bool rebuild = true}) {
-    try {
-      context.read<GlobalTrialService>().stopWatching();
-    } catch (_) {}
+    _trialService?.stopWatching();
     _vipBlocked = false;
     _trialPlaying = false;
     final player = _player;
     if (player != null) {
-      _posSub?.cancel();
-      _posSub = null;
-      _bufferPosSub?.cancel();
-      _bufferPosSub = null;
-      _bufferSub?.cancel();
-      _bufferSub = null;
       player.removeListener(_onPlayerUpdate);
-      player.release();
+      unawaited(player.dispose());
     }
     _player = null;
     _progressMs.value = 0;
@@ -251,17 +251,17 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
   Future<void> _togglePlay() async {
     final player = _player;
     if (player == null || _isLoading) return;
-    if (FijkPlayerHelper.isPlaying(player.value)) {
+    if (ProgressiveVideoHelper.isPlaying(player.value)) {
       _userPaused = true;
       await player.pause();
     } else {
       _userPaused = false;
-      if (player.value.state == FijkState.completed) {
+      if (ProgressiveVideoHelper.isCompleted(player.value)) {
         _progressMs.value = 0;
         _lastProgressUiMs = 0;
       }
       try {
-        await FijkPlayerHelper.resumeOrReplay(player);
+        await ProgressiveVideoHelper.resumeOrReplay(player);
       } catch (e) {
         debugPrint('短视频重播失败: $e');
       }
@@ -271,7 +271,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
 
   @override
   void dispose() {
-    context.read<GlobalTrialService>().removeListener(_onTrialServiceChanged);
+    _trialService?.removeListener(_onTrialServiceChanged);
     _disposePlayer(rebuild: false);
     _progressMs.dispose();
     _bufferMs.dispose();
@@ -349,7 +349,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
                       color: Colors.black.withOpacity(0.28),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 48),
+                    child: HotDouyinIcons.play(size: 48),
                   ),
                 ),
               ),
@@ -413,12 +413,15 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
                       max: maxMs > 0 ? maxMs : 1,
                       playedColor: Colors.white,
                       bufferedColor: Colors.white.withOpacity(0.6),
-                      minAheadPixels: 8,
+                      minAheadPixels: 0,
                       trackColor: Colors.white.withOpacity(0.2),
                       thumbColor: Colors.white,
                       onChangeStart: (_) {
                         _isScrubbing = true;
-                        _player?.pause();
+                        final p = _player;
+                        if (p != null && ProgressiveVideoHelper.isPlaying(p.value)) {
+                          p.pause();
+                        }
                       },
                       onChanged: (v) => _progressMs.value = v,
                       onChangeEnd: (v) async {
@@ -427,9 +430,8 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
                         final p = _player;
                         if (p == null) return;
                         try {
-                          await p.seekTo(v.round());
-                          await Future<void>.delayed(const Duration(milliseconds: 80));
-                          await p.start();
+                          await p.seekTo(Duration(milliseconds: v.round()));
+                          await p.play();
                         } catch (_) {}
                         _lastProgressUiMs = 0;
                         _syncPlayerUi();
@@ -459,7 +461,8 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
           )
         else
           const ColoredBox(color: Colors.black),
-        if (player != null) FijkVideoView(player: player, fit: FijkFit.cover),
+        if (player != null)
+          ProgressiveVideoView(controller: player, fit: BoxFit.cover),
       ],
     );
   }
@@ -469,6 +472,10 @@ class _VideoInfo extends StatelessWidget {
   final Video video;
 
   const _VideoInfo({required this.video});
+
+  static const _infoShadow = [
+    Shadow(color: Color(0x80000000), offset: Offset(0, 1), blurRadius: 3),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -482,27 +489,33 @@ class _VideoInfo extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             _CategoryAvatar(imageUrl: avatar),
-            const SizedBox(width: 8),
+            const SizedBox(width: 10),
             Flexible(
               child: Text(
                 category,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  shadows: _infoShadow,
+                ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 9),
+        const SizedBox(height: 6),
         Text(
           video.vodName ?? '',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            color: Colors.white,
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
-            height: 1.25,
+            color: Color(0xF0FFFFFF),
+            fontSize: 14,
+            fontWeight: FontWeight.w400,
+            height: 1.35,
+            shadows: _infoShadow,
           ),
         ),
       ],
@@ -519,8 +532,8 @@ class _CategoryAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = imageUrl;
     return Container(
-      width: 34,
-      height: 34,
+      width: 40,
+      height: 40,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white.withOpacity(0.88), width: 1.2),
@@ -529,7 +542,8 @@ class _CategoryAvatar extends StatelessWidget {
         child: url == null || url.isEmpty
             ? Container(
                 color: Colors.white24,
-                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+                alignment: Alignment.center,
+                child: HotDouyinIcons.play(size: 20),
               )
             : CachedNetworkImage(
                 imageUrl: ImageUrl.getImageUrl(url),
@@ -537,7 +551,8 @@ class _CategoryAvatar extends StatelessWidget {
                 placeholder: (_, __) => Container(color: Colors.white24),
                 errorWidget: (_, __, ___) => Container(
                   color: Colors.white24,
-                  child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+                  alignment: Alignment.center,
+                  child: HotDouyinIcons.play(size: 20),
                 ),
               ),
       ),

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:videoweb_flutter/utils/app_toast.dart';
 
 import 'package:flutter/services.dart';
-import 'package:fijkplayer/fijkplayer.dart';
+import 'package:video_player/video_player.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:videoweb_flutter/api/api_client.dart';
@@ -23,7 +23,7 @@ import 'package:videoweb_flutter/pages/home/widgets/video_card.dart';
 import 'package:videoweb_flutter/theme/app_theme.dart';
 import 'package:videoweb_flutter/utils/ad_link_helper.dart';
 import 'package:videoweb_flutter/utils/comment_time_util.dart';
-import 'package:videoweb_flutter/utils/fijk_player_helper.dart';
+import 'package:videoweb_flutter/utils/progressive_video_helper.dart';
 import 'package:videoweb_flutter/utils/screen_wake_lock.dart';
 import 'package:videoweb_flutter/utils/image_url.dart';
 import 'package:videoweb_flutter/widgets/user_avatar.dart';
@@ -31,7 +31,7 @@ import 'package:videoweb_flutter/utils/share_report_helper.dart';
 import 'package:videoweb_flutter/utils/video_interact_helper.dart';
 import 'package:videoweb_flutter/utils/vip_access_helper.dart';
 import 'package:videoweb_flutter/widgets/detail_player_gesture_layer.dart';
-import 'package:videoweb_flutter/widgets/fijk_video_view.dart';
+import 'package:videoweb_flutter/widgets/progressive_video_view.dart';
 import 'package:videoweb_flutter/widgets/player_buffered_progress_bar.dart';
 import 'package:videoweb_flutter/widgets/player_loading_overlay.dart';
 import 'package:videoweb_flutter/utils/video_grid_layout.dart';
@@ -46,12 +46,12 @@ class VideoDetailPage extends StatefulWidget {
   State<VideoDetailPage> createState() => _VideoDetailPageState();
 }
 
-class _VideoDetailPageState extends State<VideoDetailPage> {
+class _VideoDetailPageState extends State<VideoDetailPage> with WidgetsBindingObserver {
   final ApiService _api = ApiService();
   final GlobalKey _playerViewKey = GlobalKey();
 
-  // 播放器
-  final FijkPlayer _player = FijkPlayer();
+  // 播放器（ExoPlayer / AVPlayer，对齐原生点播）
+  VideoPlayerController? _player;
   bool _isPlaying = false;
   bool _wakeLockHeld = false;
 
@@ -91,7 +91,6 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
 
   // 播放器
   Duration _position = Duration.zero;
-  Duration _bufferPosition = Duration.zero;
   Duration _duration = Duration.zero;
   double _playbackSpeed = 1.0;
   bool _controlsVisible = true;
@@ -105,9 +104,6 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
   String _vipOverlayTitle = '需要 VIP 会员';
   String _vipOverlayMessage = '观看视频需开通 VIP 会员后观看完整内容';
   Timer? _controlsHideTimer;
-  StreamSubscription<Duration>? _posSub;
-  StreamSubscription<bool>? _bufferSub;
-  StreamSubscription<Duration>? _bufferPosSub;
   final GlobalKey _controlsKey = GlobalKey();
 
   // 获取 videoId 的 int 值
@@ -122,26 +118,44 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _video = widget.video;
     _isLiked = widget.video.isLiked == true;
     _isFavorited = widget.video.isFavorited == true;
     _likeCount = widget.video.likeCount ?? 0;
     _favoriteCount = widget.video.favoriteCount ?? 0;
     _shareCount = widget.video.shareCount ?? 0;
-    _player.addListener(_onPlayerUpdate);
-    _posSub = _player.onCurrentPosUpdate.listen((pos) {
-      if (!mounted || _isScrubbing || _isGestureSeeking) return;
-      setState(() => _position = pos);
-    });
-    _bufferSub = _player.onBufferStateUpdate.listen((_) => _syncPlayerUi());
-    _bufferPosSub = _player.onBufferPosUpdate.listen((pos) {
-      if (!mounted || _isScrubbing || _isGestureSeeking) return;
-      setState(() => _bufferPosition = pos);
-    });
+    // 视频页允许横屏；首页默认竖屏锁定
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     _loadVideoDetail().then((_) => _preparePlayback());
     _loadHomeGridAds();
     _loadMoreVideos();
     _recordView();
+  }
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncLandscapeFromWindow());
+  }
+
+  /// 按实际窗口宽高同步全屏态，避免「竖屏先撑满再旋转」的卡顿感
+  void _syncLandscapeFromWindow() {
+    if (!mounted) return;
+    final size = MediaQuery.sizeOf(context);
+    final landscape = size.width > size.height;
+    if (landscape == _isLandscape) return;
+    if (landscape) {
+      unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+    } else {
+      unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+    }
+    setState(() => _isLandscape = landscape);
   }
 
   void _onPlayerUpdate() {
@@ -151,15 +165,22 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
 
   void _syncPlayerUi() {
     if (!mounted) return;
-    final value = _player.value;
-    final playing = FijkPlayerHelper.isPlaying(value) && value.state != FijkState.completed;
-    final loading = FijkPlayerHelper.isLoading(_player, userPaused: _userPaused);
+    final player = _player;
+    if (player == null) return;
+    final value = player.value;
+    final playing =
+        ProgressiveVideoHelper.isPlaying(value) && !ProgressiveVideoHelper.isCompleted(value);
+    final loading = ProgressiveVideoHelper.isLoading(
+      player,
+      userPaused: _userPaused,
+      isScrubbing: _isScrubbing,
+      isGestureSeeking: _isGestureSeeking,
+    );
     setState(() {
       _isPlaying = playing;
       _isLoading = loading;
       _duration = value.duration;
-      if (!_isScrubbing) _position = _player.currentPos;
-      if (!_isScrubbing && !_isGestureSeeking) _bufferPosition = _player.bufferPos;
+      if (!_isScrubbing && !_isGestureSeeking) _position = value.position;
     });
     if (playing && _controlsVisible) {
       _scheduleHideControls();
@@ -229,38 +250,74 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     AppToast.show('屏幕已锁定，点击左侧锁图标解锁', context: context);
   }
 
-  void _handlePlayerBack() {
+  Future<void> _handlePlayerBack() async {
     if (_isLandscape) {
       if (_isScreenLocked) {
         _toggleScreenLock();
       } else {
-        _toggleOrientation();
+        await _exitFullscreen();
       }
       return;
     }
-    Navigator.of(context).pop();
+    await _restorePortraitSystemUi();
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  /// 恢复竖屏 + 系统栏（退出全屏 / 离开页面前调用，避免首页横屏闪一下）
+  Future<void> _restorePortraitSystemUi() async {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  /// 进入全屏：先旋转屏幕，布局随 didChangeMetrics 横屏后再放大（避免竖屏先撑满）
+  Future<void> _enterFullscreen() async {
+    if (_isLandscape) return;
+    if (_isScreenLocked) {
+      setState(() => _isScreenLocked = false);
+    }
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _syncLandscapeFromWindow());
+    }
+    _showPlayerControls(autoHide: _isPlaying);
+  }
+
+  /// 退出全屏：先恢复竖屏，布局随 didChangeMetrics 竖屏后再收回播放器
+  Future<void> _exitFullscreen() async {
+    if (!_isLandscape) return;
+    if (_isScreenLocked) {
+      setState(() => _isScreenLocked = false);
+    }
+    await _restorePortraitSystemUi();
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _syncLandscapeFromWindow());
+    }
+    _showPlayerControls(autoHide: _isPlaying);
   }
 
   bool get _showCenterPlayButton {
     if (_isScreenLocked) return false;
-    if (_isLoading || _player.value.state == FijkState.idle) return false;
+    if (_isLoading || _player == null || !_player!.value.isInitialized) return false;
     return !_isPlaying || _controlsVisible;
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     try {
       context.read<GlobalTrialService>().stopWatching();
     } catch (_) {}
     _controlsHideTimer?.cancel();
-    _posSub?.cancel();
-    _bufferSub?.cancel();
-    _bufferPosSub?.cancel();
-    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    unawaited(_restorePortraitSystemUi());
     _updateWakeLock(false);
-    _player.removeListener(_onPlayerUpdate);
-    _player.release();
+    unawaited(_releasePlayer());
     _commentCtrl.dispose();
     super.dispose();
   }
@@ -306,7 +363,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
 
   Future<void> _onGlobalTrialExhausted() async {
     context.read<GlobalTrialService>().stopWatching();
-    await _player.pause();
+    await _player?.pause();
     if (!mounted) return;
     setState(() {
       _vipBlocked = true;
@@ -331,13 +388,26 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     }
   }
 
+  Future<void> _releasePlayer() async {
+    final player = _player;
+    if (player == null) return;
+    player.removeListener(_onPlayerUpdate);
+    _player = null;
+    await player.dispose();
+  }
+
   Future<void> _initPlayer() async {
     if (!_canPlayVideo) return;
     final playUrl = _video.resolvedPlayUrl;
     if (playUrl == null || playUrl.isEmpty) return;
     try {
+      await _releasePlayer();
       _userPaused = false;
-      await FijkPlayerHelper.openUrl(_player, playUrl, isLive: false);
+      final player = await ProgressiveVideoHelper.openUrl(playUrl);
+      player.addListener(_onPlayerUpdate);
+      _player = player;
+      await player.setPlaybackSpeed(_playbackSpeed);
+      await player.play();
       if (mounted) {
         _syncPlayerUi();
         _showPlayerControls(autoHide: true);
@@ -602,42 +672,29 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
   }
 
   void _toggleOrientation() {
-    if (_isLandscape && _isScreenLocked) {
-      setState(() => _isScreenLocked = false);
-    }
-    setState(() => _isLandscape = !_isLandscape);
     if (_isLandscape) {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      _showPlayerControls(autoHide: _isPlaying);
+      unawaited(_exitFullscreen());
     } else {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.portraitDown,
-      ]);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      _showPlayerControls(autoHide: _isPlaying);
+      unawaited(_enterFullscreen());
     }
   }
 
   Future<void> _playPause() async {
-    if (_isLoading || _isScreenLocked) return;
+    final player = _player;
+    if (player == null || _isLoading || _isScreenLocked) return;
     final trialSvc = context.read<GlobalTrialService>();
     if (_isPlaying) {
       _userPaused = true;
       if (_trialPlaying) trialSvc.stopWatching();
-      await _player.pause();
+      await player.pause();
       _showPlayerControls(autoHide: false);
     } else {
       _userPaused = false;
-      if (_player.value.state == FijkState.completed) {
+      if (ProgressiveVideoHelper.isCompleted(player.value)) {
         setState(() => _position = Duration.zero);
       }
       try {
-        await FijkPlayerHelper.resumeOrReplay(_player);
+        await ProgressiveVideoHelper.resumeOrReplay(player);
       } catch (_) {}
       if (_trialPlaying && !_vipBlocked) {
         trialSvc.startWatching(
@@ -653,21 +710,36 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     _syncPlayerUi();
   }
 
+  /// 竖屏播放器高度：优先 16:9，宽屏矮屏时不超过剩余可视区域（避免 Column 溢出）
+  double _portraitPlayerHeight(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final ideal = size.width * 9 / 16;
+    // TabBar(48) + Divider(1) + 详情/评论区最小高度
+    const reservedBelow = 48 + 1 + 96;
+    final maxByScreen = size.height - reservedBelow;
+    if (maxByScreen <= 0) return ideal;
+    return min(ideal, maxByScreen);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final playerHeight = MediaQuery.of(context).size.width * 9 / 16;
+    final playerHeight = _portraitPlayerHeight(context);
     return PopScope(
       canPop: !_isLandscape,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _handlePlayerBack();
+        if (!didPop) unawaited(_handlePlayerBack());
       },
       child: Scaffold(
         backgroundColor: _isLandscape ? Colors.black : context.appColors.pageBg,
         body: Stack(
           fit: StackFit.expand,
           children: [
-            if (!_isLandscape)
-              Column(
+            Visibility(
+              visible: !_isLandscape,
+              maintainState: true,
+              maintainAnimation: true,
+              maintainSize: false,
+              child: Column(
                 children: [
                   SizedBox(height: playerHeight),
                   _buildDetailTabBar(),
@@ -677,6 +749,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                   ),
                 ],
               ),
+            ),
             // 播放器始终保留在同一层，避免横竖屏切换时 Texture 被销毁（对齐原生 expand playerHolder）
             Positioned(
               top: 0,
@@ -684,9 +757,11 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
               right: 0,
               bottom: _isLandscape ? 0 : null,
               height: _isLandscape ? null : playerHeight,
-              child: ColoredBox(
-                color: Colors.black,
-                child: _buildPlayerStack(),
+              child: RepaintBoundary(
+                child: ColoredBox(
+                  color: Colors.black,
+                  child: _buildPlayerStack(),
+                ),
               ),
             ),
           ],
@@ -695,37 +770,45 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     );
   }
 
-  /// 播放器层（横竖屏共用同一 FijkVideoView 实例）
+  /// 播放器层（横竖屏共用同一 VideoPlayer 实例）
   Widget _buildPlayerStack() {
+    final player = _player;
     return Stack(
       fit: StackFit.expand,
       children: [
-        FijkVideoView(
-          key: _playerViewKey,
-          player: _player,
-          fit: FijkFit.contain,
-        ),
-        Positioned.fill(
-          child: DetailPlayerGestureLayer(
-            player: _player,
-            duration: _duration,
-            isScreenLocked: _isScreenLocked,
-            controlsKey: _controlsKey,
-            onSingleTap: _toggleControlsVisibility,
-            onLockedTap: _onLockedScreenTap,
-            onControlsShow: () => _showPlayerControls(autoHide: _isPlaying),
-            onControlsHide: _hidePlayerControls,
-            onSeekPreview: (pos) {
-              setState(() {
-                _isGestureSeeking = true;
-                _position = pos;
-              });
-            },
-            onSeekEnd: () {
-              if (mounted) setState(() => _isGestureSeeking = false);
-            },
+        if (player != null)
+          ProgressiveVideoView(
+            key: _playerViewKey,
+            controller: player,
+            fit: BoxFit.contain,
+          )
+        else
+          const ColoredBox(color: Colors.black),
+        if (player != null)
+          Positioned.fill(
+            child: DetailPlayerGestureLayer(
+              controller: player,
+              duration: _duration,
+              isScreenLocked: _isScreenLocked,
+              controlsKey: _controlsKey,
+              onSingleTap: _toggleControlsVisibility,
+              onLockedTap: _onLockedScreenTap,
+              onControlsShow: () => _showPlayerControls(autoHide: _isPlaying),
+              onControlsHide: _hidePlayerControls,
+              onSeekPreview: (pos) {
+                setState(() {
+                  _isGestureSeeking = true;
+                  _position = pos;
+                });
+              },
+              onSeekEnd: () {
+                if (!mounted) return;
+                setState(() => _isGestureSeeking = false);
+                unawaited(player.play());
+                _syncPlayerUi();
+              },
+            ),
           ),
-        ),
         PlayerLoadingOverlay(visible: _isLoading),
         if (_vipBlocked)
           VipPlayerOverlay(
@@ -968,7 +1051,10 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     if (!showControls) return const SizedBox.shrink();
 
     final posMs = _position.inMilliseconds.clamp(0, maxMs);
-    final bufMs = _bufferPosition.inMilliseconds.clamp(posMs, maxMs);
+    final player = _player;
+    final bufMs = player == null
+        ? posMs
+        : ProgressiveVideoHelper.bufferedEndMs(player.value).clamp(posMs, maxMs);
 
     return Positioned(
       key: _controlsKey,
@@ -1008,20 +1094,28 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                   _isScrubbing = true;
                   _controlsHideTimer?.cancel();
                   _showPlayerControls(autoHide: false);
-                  _player.pause();
+                  final player = _player;
+                  if (player != null && ProgressiveVideoHelper.isPlaying(player.value)) {
+                    player.pause();
+                  }
                 },
                 onChanged: (v) {
                   setState(() => _position = Duration(milliseconds: v.round()));
                 },
                 onChangeEnd: (v) async {
-                  _isScrubbing = false;
+                  final targetMs = v.round();
                   _userPaused = false;
-                  try {
-                    await _player.seekTo(v.round());
-                    await Future<void>.delayed(const Duration(milliseconds: 80));
-                    await _player.start();
-                  } catch (_) {}
-                  _syncPlayerUi();
+                  final player = _player;
+                  if (player != null) {
+                    try {
+                      await player.seekTo(Duration(milliseconds: targetMs));
+                      await player.play();
+                    } catch (_) {}
+                  }
+                  if (mounted) {
+                    setState(() => _isScrubbing = false);
+                    _syncPlayerUi();
+                  }
                   _showPlayerControls(autoHide: true);
                 },
               ),
@@ -1060,7 +1154,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     const speeds = [1.0, 1.25, 1.5, 2.0];
     final idx = speeds.indexOf(_playbackSpeed);
     _playbackSpeed = speeds[(idx + 1) % speeds.length];
-    _player.setSpeed(_playbackSpeed);
+    _player?.setPlaybackSpeed(_playbackSpeed);
     setState(() {});
     _showPlayerControls(autoHide: _isPlaying);
   }

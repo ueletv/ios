@@ -456,9 +456,9 @@ class _FeedTabWrap extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                color: selected ? Colors.white : Colors.white54,
-                fontSize: selected ? 18 : 16,
-                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                color: selected ? Colors.white : const Color(0x99FFFFFF),
+                fontSize: selected ? 20 : 17,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
               ),
             ),
             const SizedBox(height: 4),

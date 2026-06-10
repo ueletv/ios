@@ -157,22 +157,60 @@ class _SplashAdViewState extends State<SplashAdView> {
           Positioned(
             top: MediaQuery.of(context).padding.top + 12,
             right: 16,
-            child: TextButton(
-              onPressed: canSkip ? _onSkipPressed : null,
-              style: TextButton.styleFrom(
-                backgroundColor: Colors.black45,
-                foregroundColor: Colors.white,
-              ),
-              child: Text(
-                _waitingTapToEnter
-                    ? '进入APP'
-                    : _secondsLeft > 0
-                        ? '广告 ${_secondsLeft}s${_skipDuring ? ' 跳过' : ''}'
-                        : '进入APP',
-              ),
+            child: _SplashSkipChip(
+              enabled: canSkip,
+              label: _waitingTapToEnter
+                  ? '进入APP'
+                  : _secondsLeft > 0
+                      ? '广告 ${_secondsLeft}s${_skipDuring ? ' 跳过' : ''}'
+                      : '进入APP',
+              onTap: _onSkipPressed,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 右上角倒计时/跳过（对齐原生 activity_splash.xml：高 36dp、左右 16dp 内边距）
+class _SplashSkipChip extends StatelessWidget {
+  final bool enabled;
+  final String label;
+  final VoidCallback onTap;
+
+  const _SplashSkipChip({
+    required this.enabled,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(4),
+        child: Ink(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xCC000000),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Colors.white.withOpacity(enabled ? 1 : 0.55),
+                fontSize: 14,
+                height: 1,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

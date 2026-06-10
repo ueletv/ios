@@ -28,6 +28,7 @@ class FijkPlayerHelper {
   static Future<void> applyProgressiveOptions(FijkPlayer player) async {
     await applyCommonOptions(player);
     await player.setOption(FijkOption.playerCategory, 'start-on-prepared', 1);
+    await player.setOption(FijkOption.playerCategory, 'enable-accurate-seek', 1);
     await player.setOption(FijkOption.playerCategory, 'packet-buffering', 1);
     await player.setOption(FijkOption.playerCategory, 'infbuf', 0);
     // 最大缓冲约 50MB（IJK 默认 15MB），可缓存更长的后续片段
@@ -79,9 +80,30 @@ class FijkPlayerHelper {
   static bool isBuffering(FijkValue value) =>
       value.state == FijkState.asyncPreparing;
 
-  /// 是否显示加载转圈（对齐原生 PlayerLoadingHint：用户主动暂停时不显示）
-  static bool isLoading(FijkPlayer player, {required bool userPaused}) {
-    if (userPaused) return false;
+  /// 是否显示加载转圈（对齐原生 PlayerLoadingHint：用户主动暂停/拖动时不显示）
+  static bool isLoading(
+    FijkPlayer player, {
+    required bool userPaused,
+    bool isScrubbing = false,
+    bool isGestureSeeking = false,
+    int? seekTargetMs,
+    int? trustedBufferEndMs,
+  }) {
+    if (userPaused || isScrubbing || isGestureSeeking) return false;
+
+    // 拖到已确认可播缓冲内：多为解码同步，不显示网络加载转圈
+    if (seekTargetMs != null &&
+        trustedBufferEndMs != null &&
+        trustedBufferEndMs > 0 &&
+        seekTargetMs <= trustedBufferEndMs + 600) {
+      final value = player.value;
+      if (value.state == FijkState.asyncPreparing) return false;
+      if (value.state == FijkState.prepared && !value.videoRenderStart) {
+        return false;
+      }
+      if (value.state == FijkState.started) return false;
+    }
+
     final value = player.value;
     switch (value.state) {
       case FijkState.idle:

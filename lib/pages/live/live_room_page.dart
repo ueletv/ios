@@ -1128,79 +1128,39 @@ class _LiveRoomPageState extends State<LiveRoomPage> with WidgetsBindingObserver
       left: 12,
       right: 12,
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.35),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ClipOval(
-                  child: widget.coverUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: ImageUrl.getImageUrl(widget.coverUrl),
-                          width: 36,
-                          height: 36,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => _avatarPlaceholder(),
-                        )
-                      : _avatarPlaceholder(),
-                ),
-                const SizedBox(width: 8),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 120),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        widget.streamerName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
-                      Text(
-                        '房间ID: ${widget.streamerId}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 10),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 6),
-                _isFollowed
-                    ? _TopPillButton(label: '已关注', filled: false, onTap: _toggleFollow, loading: _followLoading)
-                    : _TopPillButton(label: '+ 关注', filled: true, onTap: _toggleFollow, loading: _followLoading),
-              ],
-            ),
+          _StreamerInfoPill(
+            avatar: widget.coverUrl.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: ImageUrl.getImageUrl(widget.coverUrl),
+                    width: 36,
+                    height: 36,
+                    fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) => _avatarPlaceholder(),
+                  )
+                : _avatarPlaceholder(),
+            name: widget.streamerName,
+            roomId: widget.streamerId,
+            followed: _isFollowed,
+            followLoading: _followLoading,
+            onFollowTap: _toggleFollow,
           ),
-          const Spacer(),
           ValueListenableBuilder<int>(
             valueListenable: _onlineCountNotifier,
             builder: (_, count, __) => Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.35),
+                color: LiveRoomColors.streamerPillBg,
                 borderRadius: BorderRadius.circular(999),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.people_outline, color: Colors.white, size: 14),
-                  const SizedBox(width: 5),
-                  Text(
-                    '$count',
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
-                ],
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -1316,24 +1276,18 @@ class _LiveRoomPageState extends State<LiveRoomPage> with WidgetsBindingObserver
                     onTap: _openChatPanel,
                     child: Container(
                       height: 36,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
                       decoration: BoxDecoration(
                         color: LiveRoomColors.chatInputBg,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(color: LiveRoomColors.chatInputStroke),
                       ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.chat_bubble_outline, color: Colors.white, size: 16),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '说点什么...',
-                              style: TextStyle(color: Color(0x99FFFFFF), fontSize: 13),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
+                      child: const Text(
+                        '说点什么...',
+                        style: TextStyle(color: Color(0x99FFFFFF), fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ),
@@ -1372,25 +1326,14 @@ class _LiveRoomPageState extends State<LiveRoomPage> with WidgetsBindingObserver
   }
 
   Widget _bottomGiftButton() {
-    return Material(
-      color: Colors.black.withOpacity(0.35),
-      shape: const CircleBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: SizedBox(
+    return GestureDetector(
+      onTap: _openGiftPanel,
+      behavior: HitTestBehavior.opaque,
+      child: Image.asset(
+        LiveRoomAssets.giftIcon,
         width: 36,
         height: 36,
-        child: InkWell(
-          onTap: _openGiftPanel,
-          child: Padding(
-            padding: const EdgeInsets.all(5),
-            child: Image.asset(
-              LiveRoomAssets.giftIcon,
-              width: 26,
-              height: 26,
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
+        fit: BoxFit.contain,
       ),
     );
   }
@@ -1418,44 +1361,140 @@ class _LiveRoomPageState extends State<LiveRoomPage> with WidgetsBindingObserver
   }
 }
 
-class _TopPillButton extends StatelessWidget {
-  final String label;
-  final bool filled;
+/// 抖音风主播信息胶囊：头像 36 + 昵称/ID + 关注钮（对齐 activity_live_room.xml）
+class _StreamerInfoPill extends StatelessWidget {
+  static const _pillHeight = 44.0;
+  static const _avatarSize = 36.0;
+  /// 昵称/ID 固定宽度，超长省略，不把胶囊撑宽（对齐抖音约 4～5 字）
+  static const _textWidth = 72.0;
+
+  final Widget avatar;
+  final String name;
+  final String roomId;
+  final bool followed;
+  final bool followLoading;
+  final VoidCallback onFollowTap;
+
+  const _StreamerInfoPill({
+    required this.avatar,
+    required this.name,
+    required this.roomId,
+    required this.followed,
+    required this.followLoading,
+    required this.onFollowTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 右侧在线人数约占 56px，保证胶囊在窄屏也不溢出
+    final maxPillWidth = MediaQuery.sizeOf(context).width - 24 - 56;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxPillWidth),
+      child: Container(
+        height: _pillHeight,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: LiveRoomColors.streamerPillBg,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            ClipOval(
+              child: SizedBox(width: _avatarSize, height: _avatarSize, child: avatar),
+            ),
+            const SizedBox(width: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _textWidth),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      height: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'ID: $roomId',
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xB3FFFFFF),
+                      fontSize: 10,
+                      height: 1.1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _DouyinFollowButton(
+              followed: followed,
+              loading: followLoading,
+              onTap: onFollowTap,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 关注钮：高 26、圆角 14，未关注「+ 关注」/ 已关注灰底（对齐原生 bg_live_follow_btn）
+class _DouyinFollowButton extends StatelessWidget {
+  static const _btnHeight = 26.0;
+
+  final bool followed;
   final bool loading;
   final VoidCallback onTap;
 
-  const _TopPillButton({
-    required this.label,
-    required this.filled,
+  const _DouyinFollowButton({
+    required this.followed,
     required this.onTap,
     this.loading = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: filled ? Colors.redAccent : Colors.white.withOpacity(0.18),
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: loading ? null : onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          child: loading
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : Text(
-                  label,
-                  style: TextStyle(
-                    color: filled ? Colors.white : const Color(0xFF999999),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+    return GestureDetector(
+      onTap: loading ? null : onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: _btnHeight,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        constraints: const BoxConstraints(minWidth: 40),
+        decoration: BoxDecoration(
+          color: followed ? LiveRoomColors.followDoneBg : LiveRoomColors.followActive,
+          borderRadius: BorderRadius.circular(14),
         ),
+        alignment: Alignment.center,
+        child: loading
+            ? const SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
+              )
+            : Text(
+                followed ? '已关注' : '+ 关注',
+                style: TextStyle(
+                  color: followed ? LiveRoomColors.followDoneText : Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  height: 1.0,
+                ),
+              ),
       ),
     );
   }

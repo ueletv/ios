@@ -15,4 +15,9 @@ abstract final class LiveRoomColors {
   static const chatInputBg = Color(0x33FFFFFF);
   static const chatInputStroke = Color(0x1AFFFFFF);
   static const giftPanelBg = Color(0xF0161823);
+  /// 抖音风关注按钮（对齐 bg_live_follow_btn.xml）
+  static const followActive = Color(0xFFFE2C55);
+  static const followDoneBg = Color(0xFF666666);
+  static const followDoneText = Color(0xFF999999);
+  static const streamerPillBg = Color(0x66000000);
 }

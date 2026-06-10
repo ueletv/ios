@@ -1,11 +1,11 @@
-import 'package:fijkplayer/fijkplayer.dart';
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import 'package:videoweb_flutter/utils/player_system_controls.dart';
 
 /// 详情页播放器手势层（对齐原生 VideoPlayerGestureController）
 /// 横向滑动快进/快退，左侧上下滑亮度，右侧上下滑音量，双击左/右 ±10s，单击显隐控制条。
 class DetailPlayerGestureLayer extends StatefulWidget {
-  final FijkPlayer player;
+  final VideoPlayerController controller;
   final Duration duration;
   final bool isScreenLocked;
   final GlobalKey? controlsKey;
@@ -18,7 +18,7 @@ class DetailPlayerGestureLayer extends StatefulWidget {
 
   const DetailPlayerGestureLayer({
     super.key,
-    required this.player,
+    required this.controller,
     required this.duration,
     required this.isScreenLocked,
     this.controlsKey,
@@ -52,6 +52,12 @@ class _DetailPlayerGestureLayerState extends State<DetailPlayerGestureLayer> {
   int get _durationMs {
     final ms = widget.duration.inMilliseconds;
     return ms > 0 ? ms : 0;
+  }
+
+  int get _currentPositionMs {
+    final value = widget.controller.value;
+    if (!value.isInitialized) return 0;
+    return value.position.inMilliseconds;
   }
 
   bool _isOnControls(Offset globalPosition) {
@@ -126,9 +132,9 @@ class _DetailPlayerGestureLayerState extends State<DetailPlayerGestureLayer> {
       return;
     }
 
-    final current = widget.player.currentPos.inMilliseconds;
+    final current = _currentPositionMs;
     final target = (current + stepMs).clamp(0, durationMs);
-    widget.player.seekTo(target);
+    widget.controller.seekTo(Duration(milliseconds: target));
     widget.onSeekPreview?.call(Duration(milliseconds: target));
     widget.onSeekEnd?.call();
     _showSeekHint(target, durationMs, stepMs);
@@ -145,7 +151,7 @@ class _DetailPlayerGestureLayerState extends State<DetailPlayerGestureLayer> {
     _mode = _GestureMode.none;
     _startX = details.localPosition.dx;
     _startY = details.localPosition.dy;
-    _startPositionMs = widget.player.currentPos.inMilliseconds;
+    _startPositionMs = _currentPositionMs;
     _previewPositionMs = _startPositionMs;
     _panActive = true;
     _refreshSideGestureBaselines();
@@ -199,7 +205,7 @@ class _DetailPlayerGestureLayerState extends State<DetailPlayerGestureLayer> {
     _panActive = false;
 
     if (_mode == _GestureMode.seek && _durationMs > 0) {
-      widget.player.seekTo(_previewPositionMs);
+      widget.controller.seekTo(Duration(milliseconds: _previewPositionMs));
       widget.onSeekPreview?.call(Duration(milliseconds: _previewPositionMs));
       widget.onControlsShow();
     }

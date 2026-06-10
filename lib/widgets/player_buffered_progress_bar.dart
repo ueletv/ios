@@ -25,7 +25,7 @@ class PlayerBufferedProgressBar extends StatefulWidget {
     this.trackColor = const Color(0x33FFFFFF),
     this.thumbColor = const Color(0xFFFF6B6B),
     this.showThumb = true,
-    this.minAheadPixels = 8,
+    this.minAheadPixels = 0,
     this.onChangeStart,
     this.onChanged,
     this.onChangeEnd,

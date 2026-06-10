@@ -1,0 +1,13 @@
+// Gradle init script: prefer China mirrors for dependency downloads.
+settingsEvaluated { settings ->
+    settings.pluginManagement.repositories { repos ->
+        repos.maven { url 'https://maven.aliyun.com/repository/gradle-plugin/' }
+        repos.maven { url 'https://maven.aliyun.com/repository/google/' }
+        repos.maven { url 'https://maven.aliyun.com/repository/public/' }
+    }
+    settings.dependencyResolutionManagement.repositories { repos ->
+        repos.maven { url 'https://maven.aliyun.com/repository/google/' }
+        repos.maven { url 'https://maven.aliyun.com/repository/public/' }
+        repos.maven { url 'https://maven.aliyun.com/repository/gradle-plugin/' }
+    }
+}

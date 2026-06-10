@@ -1,0 +1,47 @@
+# 免费云端 Mac 打未签名 IPA（无需 Apple Developer）
+# 下载产物后，在 Windows 用爱思助手 + 普通 Apple ID 签名安装（约 7 天有效）
+name: iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ipa:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Install CocoaPods dependencies
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Build iOS release (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        run: |
+          cd build/ios/iphoneos
+          rm -rf Payload unsigned.ipa
+          mkdir -p Payload
+          cp -r Runner.app Payload/
+          zip -y -r unsigned.ipa Payload
+          ls -lh unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: videoweb-unsigned-ipa
+          path: build/ios/iphoneos/unsigned.ipa
+          retention-days: 7

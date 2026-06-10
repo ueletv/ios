@@ -1,6 +1,7 @@
 import AVFoundation
 import Flutter
 import MediaPlayer
+import Security
 import UIKit
 
 /// 对齐 Android MainActivity：device_id / player_controls MethodChannel
@@ -49,6 +50,16 @@ enum NativeBridge {
         case "setVolume":
           let volume = (call.arguments as? [String: Any])?["volume"] as? Int ?? 0
           setSystemVolume(volume: volume, max: 15)
+          result(nil)
+        case "enableWakeLock":
+          DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = true
+          }
+          result(nil)
+        case "disableWakeLock":
+          DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = false
+          }
           result(nil)
         default:
           result(FlutterMethodNotImplemented)

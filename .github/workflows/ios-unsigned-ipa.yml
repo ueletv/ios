@@ -38,11 +38,15 @@ jobs:
       - name: Build iOS release (no codesign)
         run: |
           set -o pipefail
-          flutter build ios --release --no-codesign -v 2>&1 | tee build_ios.log
+          flutter build ios --release --no-codesign -v 2>&1 | tee build_ios.log || (
+            echo "========== BUILD FAILED (last 150 lines) =========="
+            tail -150 build_ios.log
+            exit 1
+          )
 
       - name: Upload build log on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: build-log
           path: build_ios.log
@@ -60,7 +64,7 @@ jobs:
 
       - name: Upload IPA artifact
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: videoweb-unsigned-ipa
           path: build/ios/iphoneos/unsigned.ipa

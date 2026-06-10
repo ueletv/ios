@@ -49,7 +49,7 @@ enum NativeBridge {
           result(["volume": current, "max": maxVol])
         case "setVolume":
           let volume = (call.arguments as? [String: Any])?["volume"] as? Int ?? 0
-          setSystemVolume(volume: volume, max: 15)
+          setSystemVolume(volume: volume, maxVolume: 15)
           result(nil)
         case "enableWakeLock":
           DispatchQueue.main.async {
@@ -137,11 +137,11 @@ enum NativeBridge {
 
   // MARK: - Volume
 
-  private static func setSystemVolume(volume: Int, max: Int) {
+  private static func setSystemVolume(volume: Int, maxVolume: Int) {
     ensureVolumeView()
     guard let slider = volumeView?.subviews.compactMap({ $0 as? UISlider }).first else { return }
-    let clamped = min(max(volume, 0), max)
-    let value = Float(clamped) / Float(max)
+    let clamped = min(max(volume, 0), maxVolume)
+    let value = Float(clamped) / Float(maxVolume)
     DispatchQueue.main.async {
       slider.value = value
       slider.sendActions(for: .valueChanged)

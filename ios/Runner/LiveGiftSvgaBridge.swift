@@ -90,8 +90,8 @@ final class LiveGiftSvgaOverlayView: UIView {
 
     parser.parse(
       with: loadUrl,
-      completionBlock: { [weak self, weak player] videoItem in
-        guard let self, let player, player.superview != nil, let item = videoItem else { return }
+      completionBlock: { [weak player] videoItem in
+        guard let player, player.superview != nil, let item = videoItem else { return }
         DispatchQueue.main.async {
           player.videoItem = item
           player.startAnimation()

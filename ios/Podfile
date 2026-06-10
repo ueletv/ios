@@ -31,15 +31,19 @@ def patch_svga_pbobjc!(installer)
   return unless File.exist?(pbobjc)
 
   contents = File.read(pbobjc)
-  marker = '// Xcode16 SVGA atomic compatibility'
+  marker = '// Xcode16 SVGA atomic compatibility v2'
   return if contents.include?(marker)
 
-  # 移除上次仅加 import 的补丁，避免 conflicting types
+  # 移除旧版补丁或仅加 import 的补丁
   contents.gsub!(/^#import <libkern\/OSAtomic\.h>\n/, '')
+  contents.gsub!(
+    /\/\/ Xcode16 SVGA atomic compatibility.*?\n#define OSAtomicCompareAndSwapPtrBarrier.*?\n/m,
+    ''
+  )
 
   header = <<~'PATCH'
 
-    // Xcode16 SVGA atomic compatibility
+    // Xcode16 SVGA atomic compatibility v2
     #import <stdatomic.h>
     static inline BOOL SVGA_OSAtomicCompareAndSwapPtrBarrier(
         void *oldp, void *newp, void *volatile *theValue) {
@@ -47,7 +51,7 @@ def patch_svga_pbobjc!(installer)
       uintptr_t expected = (uintptr_t)oldp;
       uintptr_t desired = (uintptr_t)newp;
       return atomic_compare_exchange_strong_explicit(
-          obj, &expected, desired, memory_order_acquire, memory_order_release);
+          obj, &expected, desired, memory_order_acq_rel, memory_order_relaxed);
     }
     #undef OSAtomicCompareAndSwapPtrBarrier
     #define OSAtomicCompareAndSwapPtrBarrier(a, b, c) \

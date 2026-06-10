@@ -1,16 +1,17 @@
-import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:flutter/services.dart';
 
-/// 播放视频/直播时保持屏幕常亮，避免系统按息屏时间自动锁屏。
+/// 播放视频/直播时保持屏幕常亮（Android FLAG_KEEP_SCREEN_ON / iOS 关闭 idleTimer）
 class ScreenWakeLock {
   ScreenWakeLock._();
 
+  static const _channel = MethodChannel('com.video.videoweb/player_controls');
   static int _holdCount = 0;
 
   static Future<void> acquire() async {
     _holdCount++;
     if (_holdCount == 1) {
       try {
-        await WakelockPlus.enable();
+        await _channel.invokeMethod<void>('enableWakeLock');
       } catch (_) {}
     }
   }
@@ -20,7 +21,7 @@ class ScreenWakeLock {
     _holdCount--;
     if (_holdCount == 0) {
       try {
-        await WakelockPlus.disable();
+        await _channel.invokeMethod<void>('disableWakeLock');
       } catch (_) {}
     }
   }

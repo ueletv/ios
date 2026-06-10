@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.os.Build
 import android.provider.Settings
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -64,6 +65,14 @@ class MainActivity : FlutterActivity() {
                             volume.coerceIn(0, max),
                             0,
                         )
+                        result.success(null)
+                    }
+                    "enableWakeLock" -> {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        result.success(null)
+                    }
+                    "disableWakeLock" -> {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         result.success(null)
                     }
                     else -> result.notImplemented()
